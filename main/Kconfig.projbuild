@@ -1,0 +1,27 @@
+menu "XiaoZhi Assistant App"
+
+    config XZ_WIFI_SSID
+        string "Wi-Fi SSID (2.4GHz only)"
+        default "myssid"
+        help
+            开发板通过板载 ESP32-C6 连接 2.4GHz Wi-Fi。
+            注意：ESP32-C6 不支持 5GHz。
+
+    config XZ_WIFI_PASSWORD
+        string "Wi-Fi Password"
+        default "mypassword"
+
+    config XZ_SPEAKER_VOLUME
+        int "Speaker volume (0-100)"
+        range 0 100
+        default 75
+
+    config XZ_MIC_GAIN_DB
+        int "Microphone gain (dB, ES7210)"
+        range 0 42
+        default 18
+        help
+            麦克风增益。识别不灵敏时可调大（如 24/30），
+            背景噪声大或识别含糊时可调小（如 6/12）。
+
+endmenu

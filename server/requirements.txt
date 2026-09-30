@@ -1,0 +1,21 @@
+# Xiaozhi protocol server (方案 A) - FastAPI
+fastapi>=0.115
+uvicorn[standard]>=0.32
+httpx>=0.27
+pydantic-settings>=2.6
+python-dotenv>=1.0
+
+# TTS: free Microsoft Edge voices (outputs MP3 -> decoded with miniaudio)
+edge-tts>=7.0
+miniaudio>=1.61
+numpy>=1.26
+
+# Opus codecs. The device speaks Opus by default; at least one backend must work.
+#  - pyogg  : ships libopus inside the wheel (Windows friendly)  <- preferred
+#  - opuslib: pure ctypes wrapper, needs libopus on the system
+pyogg>=0.3.0
+opuslib>=3.0.1
+
+# 本地 ASR（XZ_ASR_PROVIDER=local）：faster-whisper，离线识别、不需要 Key。
+# 首次识别时会自动下载模型（国内走 hf-mirror.com 镜像）。
+faster-whisper>=1.0

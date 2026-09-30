@@ -1,0 +1,17 @@
+# ===== ESP-IDF =====
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+
+# ===== VS Code（含本机 IDF 路径 / 串口，因机器而异）=====
+.vscode/
+
+# ===== Python =====
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ===== 其他 =====
+*.log
