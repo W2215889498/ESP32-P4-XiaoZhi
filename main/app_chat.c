@@ -114,7 +114,7 @@ static void chat_event_cb(esp_xiaozhi_chat_event_t event, void *event_data, void
             s_state = ST_SPEAKING;
             app_audio_set_send_enabled(false);
             app_ui_set_button(APP_UI_BTN_STOP_SPEAK);
-            app_ui_set_status("小智正在回答…");
+            app_ui_set_status("TK助手正在回答…");
         } else if (tts->state == ESP_XIAOZHI_CHAT_TTS_STATE_STOP) {
             if (s_state == ST_SPEAKING || s_state == ST_THINKING) {
                 s_state = ST_IDLE;
@@ -189,7 +189,7 @@ static void handle_tap(void)
         s_thinking_since = xTaskGetTickCount();
         app_audio_set_send_enabled(false);
         app_ui_set_button(APP_UI_BTN_THINKING);
-        app_ui_set_status("小智正在思考…");
+        app_ui_set_status("TK助手正在思考…");
         break;
 
     case ST_SPEAKING:

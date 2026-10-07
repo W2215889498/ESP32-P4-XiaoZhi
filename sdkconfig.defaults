@@ -34,6 +34,12 @@ CONFIG_PARTITION_TABLE_OFFSET=0x8000
 # ---------------- Wi-Fi (板载 ESP32-C6, ESP-Hosted over SDIO) ----------------
 # 依赖版本在 main/idf_component.yml 里锁定（IDF>=6 线: esp_hosted 2.12.x）。
 CONFIG_SLAVE_IDF_TARGET_ESP32C6=y
+# 【重要】esp_hosted 是通过全局构造函数在调度器启动前初始化的，SDIO 传输缓冲
+# 若分配在内部 RAM，会挤爆 P4 内部堆，导致 FreeRTOS 定时器任务创建失败并重启：
+#   assert failed: vApplicationGetTimerTaskMemory port_common.c:97
+# 下面两项让传输缓冲/任务栈走 PSRAM（Espressif 为 P4 专门加的选项）。
+CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
+CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM=y
 CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM=16
 CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM=64
 CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM=64
@@ -49,10 +55,16 @@ CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_USE_CLIB_MALLOC=y
 CONFIG_LV_USE_CLIB_STRING=y
 CONFIG_LV_USE_CLIB_SPRINTF=y
-CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_14_CJK=y
-CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
 CONFIG_LV_USE_FONT_PLACEHOLDER=y
 CONFIG_LV_BUILD_EXAMPLES=n
+# 使用自刻的全量中文二进制字库（main/assets/font_tk_16.bin，覆盖 4E00-9FFF 全部汉字），
+# 通过 LVGL 的 "内存文件系统" 直接从 flash 加载（见 main/app_ui.c）。
+# 不再使用内置的 Source Han Sans 子集字体（缺字多）。
+CONFIG_LV_USE_FS_MEMFS=y
+# 'M' = 77，memfs 驱动盘符
+CONFIG_LV_FS_MEMFS_LETTER=77
+# CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_14_CJK is not set
+# CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK is not set
 
 # ---------------- Waveshare BSP ----------------
 CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3
@@ -61,6 +73,7 @@ CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
 
 # ---------------- Xiaozhi 服务端地址 ----------------
 # 改成你跑 FastAPI 服务端那台电脑的局域网 IP 和端口；必须能被开发板访问到。
+# （开发板和电脑要在同一局域网；IP 变了这里也要跟着改）
 # 也可以之后在 menuconfig -> Xiaozhi Assistant -> Default OTA URL 里修改。
-CONFIG_XIAOZHI_OTA_URL="http://192.168.1.100:8000/xiaozhi/ota/"
+CONFIG_XIAOZHI_OTA_URL="http://192.168.5.121:8000/xiaozhi/ota/"
 CONFIG_XIAOZHI_INFO_TIMEOUT_MS=8000

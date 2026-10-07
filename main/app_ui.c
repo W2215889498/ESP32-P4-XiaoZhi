@@ -1,4 +1,7 @@
-// LVGL 简洁对话界面：顶部状态栏 + 用户/小智文字 + 底部触摸按钮
+// LVGL 简洁对话界面：顶部状态栏 + 用户/TK助手文字 + 底部触摸按钮
+//
+// 中文显示使用自刻的全量字库 main/assets/font_tk_16.bin（lv_font_conv 生成，
+// 覆盖 4E00-9FFF 全部 CJK 汉字 + 常用标点/全角），通过 LVGL 内存文件系统加载。
 
 #include "app_ui.h"
 
@@ -21,6 +24,12 @@
 #define COLOR_DISABLED  0x3A3F46
 
 static const char *TAG = "app_ui";
+
+// 链接进固件的二进制字库（main/CMakeLists.txt 中 target_add_binary_data 嵌入）
+extern const uint8_t font_tk_16_bin_start[] asm("_binary_font_tk_16_bin_start");
+extern const uint8_t font_tk_16_bin_end[] asm("_binary_font_tk_16_bin_end");
+
+static const lv_font_t *s_font = NULL;
 
 static lv_obj_t *s_status = NULL;
 static lv_obj_t *s_user = NULL;
@@ -90,8 +99,20 @@ static lv_obj_t *make_caption(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *label = lv_label_create(parent);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, &lv_font_source_han_sans_sc_14_cjk, 0);
+    lv_obj_set_style_text_font(label, s_font, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(COLOR_TEXT_DIM), 0);
+    return label;
+}
+
+static lv_obj_t *make_content_label(lv_obj_t *parent, const char *text, int height)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_obj_set_width(label, LV_PCT(100));
+    lv_obj_set_height(label, height);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, s_font, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(COLOR_TEXT), 0);
     return label;
 }
 
@@ -112,6 +133,18 @@ esp_err_t app_ui_init(void)
     }
     bsp_display_backlight_on();
 
+    // 加载全量中文字库（覆盖 4E00-9FFF 全部汉字，不再缺字）
+#if LV_USE_FS_MEMFS
+    s_font = lv_binfont_create_from_buffer((void *)font_tk_16_bin_start,
+                                           (uint32_t)(font_tk_16_bin_end - font_tk_16_bin_start));
+#endif
+    if (!s_font) {
+        ESP_LOGW(TAG, "font_tk_16.bin load failed, fallback to LV_FONT_DEFAULT");
+        s_font = LV_FONT_DEFAULT;
+    } else {
+        ESP_LOGI(TAG, "font_tk_16.bin loaded (%u bytes)", (unsigned)(font_tk_16_bin_end - font_tk_16_bin_start));
+    }
+
     bsp_display_lock(-1);
 
     lv_obj_t *scr = lv_screen_active();
@@ -131,14 +164,14 @@ esp_err_t app_ui_init(void)
     lv_obj_remove_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(header);
-    lv_label_set_text(title, "小智 AI 助手");
-    lv_obj_set_style_text_font(title, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_label_set_text(title, "TK助手");
+    lv_obj_set_style_text_font(title, s_font, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(COLOR_TEXT), 0);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
 
     s_status = lv_label_create(header);
     lv_label_set_text(s_status, "启动中…");
-    lv_obj_set_style_text_font(s_status, &lv_font_source_han_sans_sc_14_cjk, 0);
+    lv_obj_set_style_text_font(s_status, s_font, 0);
     lv_obj_set_style_text_color(s_status, lv_color_hex(COLOR_TEXT_DIM), 0);
     lv_obj_align(s_status, LV_ALIGN_RIGHT_MID, 0, 0);
 
@@ -155,22 +188,10 @@ esp_err_t app_ui_init(void)
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     make_caption(content, "你：");
-    s_user = lv_label_create(content);
-    lv_obj_set_width(s_user, LV_PCT(100));
-    lv_obj_set_height(s_user, 78);
-    lv_label_set_long_mode(s_user, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(s_user, "");
-    lv_obj_set_style_text_font(s_user, &lv_font_source_han_sans_sc_16_cjk, 0);
-    lv_obj_set_style_text_color(s_user, lv_color_hex(COLOR_TEXT), 0);
+    s_user = make_content_label(content, "", 78);
 
-    make_caption(content, "小智：");
-    s_assistant = lv_label_create(content);
-    lv_obj_set_width(s_assistant, LV_PCT(100));
-    lv_obj_set_height(s_assistant, 150);
-    lv_label_set_long_mode(s_assistant, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(s_assistant, "你好，我是小智。点下面的按钮就能和我说话。");
-    lv_obj_set_style_text_font(s_assistant, &lv_font_source_han_sans_sc_16_cjk, 0);
-    lv_obj_set_style_text_color(s_assistant, lv_color_hex(COLOR_TEXT), 0);
+    make_caption(content, "TK助手：");
+    s_assistant = make_content_label(content, "你好，我是TK助手。点下面的按钮就能和我说话。", 150);
 
     // ---------------- 底部按钮 ----------------
     s_btn = lv_button_create(scr);
@@ -181,7 +202,7 @@ esp_err_t app_ui_init(void)
     lv_obj_add_event_cb(s_btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
     s_btn_label = lv_label_create(s_btn);
-    lv_obj_set_style_text_font(s_btn_label, &lv_font_source_han_sans_sc_16_cjk, 0);
+    lv_obj_set_style_text_font(s_btn_label, s_font, 0);
     lv_obj_set_style_text_color(s_btn_label, lv_color_hex(0xFFFFFF), 0);
     apply_button_locked();
 

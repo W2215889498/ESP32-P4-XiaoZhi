@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_max_tokens: int = 512
     llm_system_prompt: str = (
-        "你叫小智，是一个运行在 ESP32 上的语音助手。"
+        "你叫TK助手，是一个运行在 ESP32 上的语音助手。"
         "回答要口语化、简洁，适合朗读，通常不超过三句话，不要使用 Markdown 或表情符号。"
         "当用户想控制开发板上的硬件（开关灯、继电器等）时，调用提供的工具去执行，"
         "并简短地告诉用户执行结果。"

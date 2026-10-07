@@ -126,7 +126,7 @@ class OpenAICompatLLM(LLM):
 class MockLLM(LLM):
     name = "mock"
 
-    _REPLY = "我是小智，现在还没有配置大模型密钥。请把 DeepSeek 的 API Key 填进 .env，我就能正常回答你了。"
+    _REPLY = "我是TK助手，现在还没有配置大模型密钥。请把 DeepSeek 的 API Key 填进 .env，我就能正常回答你了。"
     _TOOL_REPLY = "好的，已经完成了。"
 
     async def _aiter(self, messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[dict]:
