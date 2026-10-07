@@ -2,19 +2,20 @@
 //
 // 数据流：
 //   麦克风 --I2S(16k/2ch)--> 降混单声道 --> Opus 编码 --(回调)--> 小智协议上行
-//   小智协议下行 --> Opus 解码(单声道) --> 复制为双声道 --> 环形缓冲 --> I2S 播放
+//   小智协议下行 --> [队列] --> 播放任务内 Opus 解码 --> 复制为双声道 --> I2S 播放
 //
-// 说明：开发板 I2S 以 16kHz / 双声道 / 16bit 打开（与微雪官方 I2SCodec 例程一致），
-// 应用层再做单声道转换；Opus 侧始终为 16kHz 单声道 60ms 帧（小智协议默认）。
+// 注意：小智协议回调（websocket_task，栈只有 ~4KB）里绝不做解码等重活，
+// 只做「拷到 PSRAM + 入队」；解码和写 I2S 全部在播放任务（大栈）里完成。
 
 #include "app_audio.h"
 
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/stream_buffer.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_codec_dev.h"
 
@@ -33,95 +34,111 @@
 #define FRAME_SAMPLES         (AUDIO_SAMPLE_RATE / 1000 * OPUS_FRAME_MS)   // 960
 #define MIC_READ_BYTES        (FRAME_SAMPLES * AUDIO_CHANNELS * sizeof(int16_t))  // 3840
 #define OPUS_OUT_BUF_SIZE     1024
+#define OPUS_MAX_PKT          1024       // 单包 Opus 上限
+#define OPUS_QUEUE_LEN        16
 #define PCM_MONO_BUF_SIZE     (FRAME_SAMPLES * sizeof(int16_t))            // 1920
 #define PCM_STEREO_BUF_SIZE   (FRAME_SAMPLES * AUDIO_CHANNELS * sizeof(int16_t))  // 3840
-#define PLAY_RING_SIZE        (32 * 1024)
 
 static const char *TAG = "app_audio";
+
+typedef struct {
+    uint8_t *data;
+    uint16_t len;
+} opus_pkt_t;
 
 static esp_codec_dev_handle_t s_spk = NULL;
 static esp_codec_dev_handle_t s_mic = NULL;
 static void *s_opus_enc = NULL;
 static void *s_opus_dec = NULL;
-static StreamBufferHandle_t s_play_ring = NULL;
+static QueueHandle_t s_opus_q = NULL;
 
 static volatile bool s_send_enabled = false;
 static app_audio_tx_cb_t s_tx_cb = NULL;
 
-// ------------------------------------------------------------------ 播放
+// ---------------------------------------------------------------- 下行（播放）
 
-// 把小智协议下发的 Opus 帧解码为 PCM，写入播放环形缓冲（由协议回调调用）
+// 由小智协议回调（websocket_task）调用：只拷贝 + 入队，不能阻塞、不能占大栈
 void app_audio_play_opus(const uint8_t *opus, size_t len)
 {
-    if (!s_opus_dec || !s_play_ring || !opus || len == 0) {
+    if (!s_opus_q || !opus || len == 0 || len > OPUS_MAX_PKT) {
         return;
     }
-
-    uint8_t mono[PCM_MONO_BUF_SIZE];
-    uint8_t stereo[PCM_STEREO_BUF_SIZE];
-    esp_audio_dec_in_raw_t raw = {
-        .buffer = (uint8_t *)opus,
-        .len = (uint32_t)len,
-    };
-
-    int guard = 0;
-    while (raw.len > 0 && ++guard < 4) {
-        esp_audio_dec_out_frame_t frame = {
-            .buffer = mono,
-            .len = sizeof(mono),
-        };
-        esp_audio_dec_info_t info = {0};
-        esp_audio_err_t ret = esp_opus_dec_decode(s_opus_dec, &raw, &frame, &info);
-        if (ret != ESP_AUDIO_ERR_OK || frame.decoded_size == 0) {
-            if (ret != ESP_AUDIO_ERR_OK) {
-                ESP_LOGW(TAG, "opus decode failed: %d", ret);
-            }
-            break;
-        }
-
-        // 单声道 -> 双声道（I2S 配置为双声道）
-        int16_t *src = (int16_t *)mono;
-        int16_t *dst = (int16_t *)stereo;
-        int samples = (int)frame.decoded_size / (int)sizeof(int16_t);
-        for (int i = 0; i < samples; i++) {
-            dst[2 * i] = src[i];
-            dst[2 * i + 1] = src[i];
-        }
-        size_t bytes = (size_t)samples * AUDIO_CHANNELS * sizeof(int16_t);
-        xStreamBufferSend(s_play_ring, stereo, bytes, 0);
-
-        if (raw.consumed == 0) {
-            break;
-        }
-        raw.buffer += raw.consumed;
-        raw.len -= raw.consumed;
+    uint8_t *copy = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!copy) {
+        return;
+    }
+    memcpy(copy, opus, len);
+    opus_pkt_t pkt = {.data = copy, .len = (uint16_t)len};
+    if (xQueueSend(s_opus_q, &pkt, 0) != pdTRUE) {
+        // 队列满：丢弃这一帧，保证协议任务永不阻塞
+        heap_caps_free(copy);
     }
 }
 
 void app_audio_flush_playback(void)
 {
-    if (s_play_ring) {
-        xStreamBufferReset(s_play_ring);
+    if (!s_opus_q) {
+        return;
+    }
+    opus_pkt_t pkt;
+    while (xQueueReceive(s_opus_q, &pkt, 0) == pdTRUE) {
+        heap_caps_free(pkt.data);
     }
 }
 
 static void playback_task(void *arg)
 {
     (void)arg;
-    uint8_t chunk[1920];  // 30ms 双声道 PCM
+    uint8_t mono[PCM_MONO_BUF_SIZE];
+    uint8_t stereo[PCM_STEREO_BUF_SIZE];
+    opus_pkt_t pkt;
+
     while (1) {
-        size_t got = xStreamBufferReceive(s_play_ring, chunk, sizeof(chunk), pdMS_TO_TICKS(200));
-        if (got == 0) {
+        if (xQueueReceive(s_opus_q, &pkt, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-        got &= ~(size_t)0x03;  // 保证整帧对齐
-        if (got > 0 && s_spk) {
-            esp_codec_dev_write(s_spk, chunk, (int)got);
+        if (s_opus_dec && pkt.data && pkt.len) {
+            esp_audio_dec_in_raw_t raw = {
+                .buffer = pkt.data,
+                .len = pkt.len,
+            };
+            int guard = 0;
+            while (raw.len > 0 && ++guard < 4) {
+                esp_audio_dec_out_frame_t frame = {
+                    .buffer = mono,
+                    .len = sizeof(mono),
+                };
+                esp_audio_dec_info_t info = {0};
+                esp_audio_err_t ret = esp_opus_dec_decode(s_opus_dec, &raw, &frame, &info);
+                if (ret != ESP_AUDIO_ERR_OK || frame.decoded_size == 0) {
+                    if (ret != ESP_AUDIO_ERR_OK) {
+                        ESP_LOGW(TAG, "opus decode failed: %d", ret);
+                    }
+                    break;
+                }
+                // 单声道 -> 双声道（I2S 配置为双声道）
+                int16_t *src = (int16_t *)mono;
+                int16_t *dst = (int16_t *)stereo;
+                int samples = (int)frame.decoded_size / (int)sizeof(int16_t);
+                for (int i = 0; i < samples; i++) {
+                    dst[2 * i] = src[i];
+                    dst[2 * i + 1] = src[i];
+                }
+                if (s_spk) {
+                    esp_codec_dev_write(s_spk, stereo, samples * AUDIO_CHANNELS * (int)sizeof(int16_t));
+                }
+                if (raw.consumed == 0) {
+                    break;
+                }
+                raw.buffer += raw.consumed;
+                raw.len -= raw.consumed;
+            }
         }
+        heap_caps_free(pkt.data);
     }
 }
 
-// ------------------------------------------------------------------ 录音
+// ---------------------------------------------------------------- 上行（录音）
 
 void app_audio_set_send_enabled(bool enabled)
 {
@@ -174,7 +191,7 @@ static void mic_task(void *arg)
     }
 }
 
-// ------------------------------------------------------------------ 初始化
+// ---------------------------------------------------------------- 初始化
 
 void app_audio_set_volume(int volume)
 {
@@ -248,14 +265,15 @@ esp_err_t app_audio_init(void)
         return ESP_FAIL;
     }
 
-    s_play_ring = xStreamBufferCreate(PLAY_RING_SIZE, 1);
-    if (!s_play_ring) {
-        ESP_LOGE(TAG, "play ring create failed");
+    s_opus_q = xQueueCreate(OPUS_QUEUE_LEN, sizeof(opus_pkt_t));
+    if (!s_opus_q) {
+        ESP_LOGE(TAG, "opus queue create failed");
         return ESP_ERR_NO_MEM;
     }
 
-    BaseType_t ok = xTaskCreatePinnedToCore(mic_task, "audio_mic", 40960, NULL, 8, NULL, 1);
-    ok &= (xTaskCreatePinnedToCore(playback_task, "audio_play", 20480, NULL, 8, NULL, 1) == pdPASS);
+    // 播放任务：解码 + I2S 写入都在这里（栈给足，含 ~6KB 局部缓冲 + opus 解码开销）
+    BaseType_t ok = xTaskCreatePinnedToCore(playback_task, "audio_play", 32768, NULL, 8, NULL, 1);
+    ok &= (xTaskCreatePinnedToCore(mic_task, "audio_mic", 40960, NULL, 8, NULL, 1) == pdPASS);
     if (ok != pdPASS) {
         ESP_LOGE(TAG, "audio tasks create failed");
         return ESP_ERR_NO_MEM;

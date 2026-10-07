@@ -25,9 +25,9 @@
 
 static const char *TAG = "app_ui";
 
-// 链接进固件的二进制字库（main/CMakeLists.txt 中 target_add_binary_data 嵌入）
-extern const uint8_t font_tk_16_bin_start[] asm("_binary_font_tk_16_bin_start");
-extern const uint8_t font_tk_16_bin_end[] asm("_binary_font_tk_16_bin_end");
+// 全量中文点阵字库（main/assets/font_tk_16.c，lv_font_conv 从 Source Han Sans SC 生成，
+// 覆盖 4E00-9FFF 全部汉字 + 常用标点/全角），4bpp 无压缩，直接编译进固件。
+LV_FONT_DECLARE(font_tk_16);
 
 static const lv_font_t *s_font = NULL;
 
@@ -133,17 +133,9 @@ esp_err_t app_ui_init(void)
     }
     bsp_display_backlight_on();
 
-    // 加载全量中文字库（覆盖 4E00-9FFF 全部汉字，不再缺字）
-#if LV_USE_FS_MEMFS
-    s_font = lv_binfont_create_from_buffer((void *)font_tk_16_bin_start,
-                                           (uint32_t)(font_tk_16_bin_end - font_tk_16_bin_start));
-#endif
-    if (!s_font) {
-        ESP_LOGW(TAG, "font_tk_16.bin load failed, fallback to LV_FONT_DEFAULT");
-        s_font = LV_FONT_DEFAULT;
-    } else {
-        ESP_LOGI(TAG, "font_tk_16.bin loaded (%u bytes)", (unsigned)(font_tk_16_bin_end - font_tk_16_bin_start));
-    }
+    // 使用全量中文字库（覆盖 4E00-9FFF 全部汉字，不再缺字）
+    s_font = &font_tk_16;
+    ESP_LOGI(TAG, "font font_tk_16 (full CJK) in use");
 
     bsp_display_lock(-1);
 
