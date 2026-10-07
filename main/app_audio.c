@@ -35,7 +35,8 @@
 #define MIC_READ_BYTES        (FRAME_SAMPLES * AUDIO_CHANNELS * sizeof(int16_t))  // 3840
 #define OPUS_OUT_BUF_SIZE     1024
 #define OPUS_MAX_PKT          1024       // 单包 Opus 上限
-#define OPUS_QUEUE_LEN        16
+#define OPUS_QUEUE_LEN        512        // 服务端按句突发下发（一整句音频几百 ms 内到齐），
+                                         // 队列需容纳 ~30 秒音频，否则会丢帧导致播放中途截断
 #define PCM_MONO_BUF_SIZE     (FRAME_SAMPLES * sizeof(int16_t))            // 1920
 #define PCM_STEREO_BUF_SIZE   (FRAME_SAMPLES * AUDIO_CHANNELS * sizeof(int16_t))  // 3840
 
@@ -70,7 +71,11 @@ void app_audio_play_opus(const uint8_t *opus, size_t len)
     memcpy(copy, opus, len);
     opus_pkt_t pkt = {.data = copy, .len = (uint16_t)len};
     if (xQueueSend(s_opus_q, &pkt, 0) != pdTRUE) {
-        // 队列满：丢弃这一帧，保证协议任务永不阻塞
+        // 队列满：丢弃这一帧，保证协议任务永不阻塞（正常不应发生，队列已按整句容量设计）
+        static int drop_cnt = 0;
+        if ((drop_cnt++ % 20) == 0) {
+            ESP_LOGW(TAG, "playback queue full, drop frame (%d dropped)", drop_cnt);
+        }
         heap_caps_free(copy);
     }
 }

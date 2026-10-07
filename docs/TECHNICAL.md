@@ -407,6 +407,20 @@ I os_wrapper_esp: Restarting host
 
 烧录报 `requires chip revision in range [v3.1 - v3.99]` 时，确认 `CONFIG_ESP32P4_REV_MIN_100=y`（IDF 6 还需 `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y`）。
 
+### 9.6 websocket_task 栈溢出（MCP tools/list）— 已修复
+
+**现象**：设备连上服务器后约 1 秒重启（IDF 5.5 固件），崩溃于：
+
+```
+Guru Meditation Error: Core 0 panic'ed (Stack protection fault)
+Detected in task "websocket_task"   # 溢出点: newlib __ssprint_r / vsnprintf
+Stack bounds: 0x4ff304e0 - 0x4ff314d0   # 仅 4KB
+```
+
+**根因**：`esp_xiaozhi` 初始化 websocket 客户端时未设置 `task_stack`，`esp_websocket_client` 默认 **4KB**；处理 MCP `tools/list` 响应（构建并打印 JSON）时栈不够（IDF 5.5 的 newlib printf 栈帧比 6.x 大，因此 6.x 上侥幸没炸）。
+
+**修复**：给 websocket 客户端配置 `.task_stack = 8192`（修改在 `managed_components/espressif__esp_xiaozhi/src/esp_xiaozhi_websocket.c`）。组件重新下载后补丁会丢失——已提供**幂等恢复脚本 `tools/apply_patches.ps1`**，组件更新后运行一次即可。
+
 ---
 
 ## 附：关键文件索引
@@ -422,4 +436,5 @@ I os_wrapper_esp: Restarting host
 | ASR / LLM / TTS providers | `server/app/providers/{asr,llm,tts}.py`、`server/app/audio.py` |
 | 服务端配置 | `server/app/config.py`、`server/.env.example` |
 | 字库生成脚本 | `tools/gen_font.ps1` |
+| 原厂组件补丁恢复脚本 | `tools/apply_patches.ps1` |
 | 冒烟测试 | `server/tools/ws_smoke_test.py` |
