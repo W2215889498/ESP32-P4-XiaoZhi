@@ -10,7 +10,9 @@
 # =============================================================================
 
 CONFIG_IDF_TARGET="esp32p4"
-# 本板 ESP32-P4 为 rev1.3
+# 本板 ESP32-P4 为 rev1.3；必须显式选择 "<3.0 支持" 否则默认要求 rev3.1，
+# 烧录时会报 "requires chip revision in range [v3.1 - v3.99]"（IDF 5.5/6.x 同理）
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_100=y
 
 # ---------------- Flash / PSRAM ----------------
