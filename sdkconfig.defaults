@@ -1,13 +1,16 @@
 # =============================================================================
 # ESP32-P4-XiaoZhi 默认配置
 # 目标板: Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3 (P4 rev1.3 + ESP32-C6 + 4.3" IPS)
-# 工具链: ESP-IDF v6.0.x（本机已装 v6.0.3；v6.1 与 esp_hosted 2.12 有已知兼容问题）
+# 工具链: ESP-IDF v5.5.x（微雪 FAQ 推荐 v5.5.1~v5.5.4）
+#
+# ★ Wi-Fi 稳定性：采用与出厂固件一致的 ESP-Hosted 1.4.x 主机线
+#   （main/idf_component.yml: esp_hosted 1.4.7 + esp_wifi_remote 0.14.5）。
+#   出厂 C6 固件与 hosted 2.x 主机在音频突发流量下会出现 SDIO 超时
+#   （"Unrecoverable host sdio state"）并触发重启，因此锁定 1.4.x。
 # =============================================================================
 
 CONFIG_IDF_TARGET="esp32p4"
-# 本板 ESP32-P4 为 rev1.3；必须显式选择 "<3.0 支持" 否则默认要求 rev3.1，
-# 烧录时会报 "requires chip revision in range [v3.1 - v3.99]"
-CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+# 本板 ESP32-P4 为 rev1.3
 CONFIG_ESP32P4_REV_MIN_100=y
 
 # ---------------- Flash / PSRAM ----------------
@@ -20,6 +23,10 @@ CONFIG_SPIRAM_SPEED_200M=y
 CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 CONFIG_CACHE_L2_CACHE_256KB=y
 CONFIG_CACHE_L2_CACHE_LINE_128B=y
+# 内存策略（与出厂固件一致）：malloc 优先 PSRAM，内部 RAM 留给 DMA/任务栈，
+# 避免 ESP-Hosted 启动期把内部 RAM 吃光。
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=0
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=4096
 
 # ---------------- CPU / OS ----------------
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
@@ -32,17 +39,15 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_OFFSET=0x8000
 
 # ---------------- Wi-Fi (板载 ESP32-C6, ESP-Hosted over SDIO) ----------------
-# 依赖版本在 main/idf_component.yml 里锁定（IDF>=6 线: esp_hosted 2.12.x）。
 CONFIG_SLAVE_IDF_TARGET_ESP32C6=y
-# 【重要】esp_hosted 是通过全局构造函数在调度器启动前初始化的，SDIO 传输缓冲
-# 若分配在内部 RAM，会挤爆 P4 内部堆，导致 FreeRTOS 定时器任务创建失败并重启：
-#   assert failed: vApplicationGetTimerTaskMemory port_common.c:97
-# 下面两项让传输缓冲/任务栈走 PSRAM（Espressif 为 P4 专门加的选项）。
-CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
-CONFIG_ESP_HOSTED_DFLT_TASK_FROM_SPIRAM=y
 CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM=16
 CONFIG_WIFI_RMT_DYNAMIC_RX_BUFFER_NUM=64
 CONFIG_WIFI_RMT_DYNAMIC_TX_BUFFER_NUM=64
+# AMPDU 聚合（出厂固件同款，提高吞吐、减少单帧事务）
+CONFIG_WIFI_RMT_AMPDU_TX_ENABLED=y
+CONFIG_WIFI_RMT_TX_BA_WIN=32
+CONFIG_WIFI_RMT_AMPDU_RX_ENABLED=y
+CONFIG_WIFI_RMT_RX_BA_WIN=32
 CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534
 CONFIG_LWIP_TCP_WND_DEFAULT=65534
 CONFIG_LWIP_TCP_RECVMBOX_SIZE=64
@@ -71,8 +76,8 @@ CONFIG_BSP_LCD_COLOR_FORMAT_RGB565=y
 CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
 
 # ---------------- Xiaozhi 服务端地址 ----------------
-# 改成你跑 FastAPI 服务端那台电脑的局域网 IP 和端口；必须能被开发板访问到。
-# （开发板和电脑要在同一局域网；IP 变了这里也要跟着改）
-# 也可以之后在 menuconfig -> Xiaozhi Assistant -> Default OTA URL 里修改。
-CONFIG_XIAOZHI_OTA_URL="http://192.168.5.121:8000/xiaozhi/ota/"
+# 占位值；真实值请放在 sdkconfig.defaults.local（已被 .gitignore 忽略），
+# 用 SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.local" 生成配置，
+# 或在 menuconfig -> Xiaozhi Assistant -> Default OTA URL 里修改。
+CONFIG_XIAOZHI_OTA_URL="http://192.168.1.100:8000/xiaozhi/ota/"
 CONFIG_XIAOZHI_INFO_TIMEOUT_MS=8000

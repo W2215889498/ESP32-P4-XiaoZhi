@@ -2,6 +2,7 @@
 build/
 sdkconfig
 sdkconfig.old
+sdkconfig.defaults.local
 managed_components/
 
 # ===== VS Code（含本机 IDF 路径 / 串口，因机器而异）=====

@@ -1,10 +1,12 @@
-## 依赖清单（ESP-IDF 6.0.x）
-## esp_hosted / esp_wifi_remote 选 IDF>=6 的版本线（与微雪 wifistation 例程一致）。
-## 注意：板载 C6 出厂固件来自 esp_hosted 1.4.x 线；若运行时 Wi-Fi 初始化报
-## hosted 版本不匹配，需要先更新 C6 固件（见微雪 FAQ：C6_IO9 拉低 + C6 UART 烧录），
-## 或改装 ESP-IDF 5.5 + esp_hosted 1.4.7 / esp_wifi_remote 0.14.5。
+## 依赖清单（ESP-IDF 5.5.x 线）
+##
+## ★ Wi-Fi 说明（重要）：本板 ESP32-C6 出厂固件与 ESP-Hosted 1.4.x 主机线匹配
+##   （与微雪出厂 brookesia 固件一致：esp_hosted 1.4.7 + esp_wifi_remote 0.14.5）。
+##   不要把 esp_hosted 升到 2.x：2.x 主机与出厂 C6 固件在音频突发流量下会出现
+##   SDIO 超时（"Unrecoverable host sdio state"）导致设备重启。
+##   若已确认升级过 C6 固件，可再评估切换 hosted 2.x + ESP-IDF 6.x。
 dependencies:
-  idf: ">=6.0"
+  idf: ">=5.5,<6.0"
 
   # 开发板 BSP：屏幕 / 触摸 / 音频 codec(ES8311+ES7210) / SD 卡
   waveshare/esp32_p4_wifi6_touch_lcd_4_3: "^1.0.1"
@@ -12,9 +14,9 @@ dependencies:
   # 小智协议组件（WebSocket + Opus + MCP + OTA 配置端点）
   espressif/esp_xiaozhi: "^0.1.2"
 
-  # Opus 编解码：2.6.x 起要求 P4 rev>=3.0（本板 rev1.3 会编译失败），锁 2.5.x
-  espressif/esp_audio_codec: "~2.5.0"
+  # Opus 编解码（与出厂固件同版本；2.6.x 要求 P4 rev>=3，本板 rev1.3 不适用）
+  espressif/esp_audio_codec: "2.4.1"
 
-  # ESP-Hosted：P4 通过 SDIO 使用板载 C6 的 Wi-Fi 6
-  espressif/esp_hosted: ">=2.12,<3.0"
-  espressif/esp_wifi_remote: ">=1.6,<2.0"
+  # ESP-Hosted：P4 通过 SDIO 使用板载 C6（锁定出厂匹配线）
+  espressif/esp_hosted: "1.4.7"
+  espressif/esp_wifi_remote: "0.14.5"
