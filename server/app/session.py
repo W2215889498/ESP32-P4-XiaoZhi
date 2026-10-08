@@ -236,6 +236,9 @@ class ChatSession:
 
             tools = self._llm_tools() if self.mcp.initialized else None
             messages: list[dict] = list(self.history)
+            # 本轮新增的工具调用/结果消息，结束时并入 history，
+            # 让模型在后续轮次能"看到"它真实执行过什么（避免幻觉式"已完成"）。
+            new_items: list[dict] = []
             reply_parts: list[str] = []
             spoken_any = False
             max_rounds = settings.llm_tool_max_rounds if tools else 0
@@ -279,29 +282,33 @@ class ChatSession:
                 if not spoken_any and settings.llm_tool_filler and round_idx == 0:
                     await self._speak(settings.llm_tool_filler)
 
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": "".join(round_text) or None,
-                        "tool_calls": [
-                            {
-                                "id": c["id"],
-                                "type": "function",
-                                "function": {"name": c["name"], "arguments": c["arguments"]},
-                            }
-                            for c in calls
-                        ],
-                    }
-                )
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": "".join(round_text) or None,
+                    "tool_calls": [
+                        {
+                            "id": c["id"],
+                            "type": "function",
+                            "function": {"name": c["name"], "arguments": c["arguments"]},
+                        }
+                        for c in calls
+                    ],
+                }
+                messages.append(assistant_msg)
+                new_items.append(assistant_msg)
                 for c in calls:
                     result = await self._execute_tool(c)
-                    messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
+                    tool_msg = {"role": "tool", "tool_call_id": c["id"], "content": result}
+                    messages.append(tool_msg)
+                    new_items.append(tool_msg)
 
             reply = "".join(reply_parts).strip()
+            if new_items:
+                self.history.extend(new_items)
             if reply:
                 self.history.append({"role": "assistant", "content": reply})
-                if len(self.history) > 21:
-                    self.history = [self.history[0], *self.history[-20:]]
+            if len(self.history) > 21:
+                self.history = [self.history[0], *self.history[-20:]]
 
             await self._send_json(protocol.tts(protocol.TTS_STOP))
             self._speaking = False

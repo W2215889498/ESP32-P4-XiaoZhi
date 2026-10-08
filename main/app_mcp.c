@@ -81,7 +81,9 @@ esp_err_t app_mcp_init(void)
     esp_mcp_tool_t *tool = esp_mcp_tool_create(
         "self.gpio.set_output",
         "控制开发板 40PIN 排针上的 GPIO 输出电平，可用于点亮 LED、驱动继电器等。"
-        "pin 是 GPIO 编号，level=1 输出高电平，level=0 输出低电平。"
+        "pin 是 GPIO 编号；level=1 输出高电平（打开），level=0 输出低电平（关闭）。"
+        "无论引脚当前状态如何，用户每次要求打开/关闭/设置高（低）电平时都必须实际调用本工具执行，"
+        "不要凭记忆或猜测回答“已经是/无需操作”。"
         "可用引脚：2,3,4,5,21,22,24,25,28,29,30,31,32,34,35,37,38,46,47,48,49,50,51,52。",
         gpio_set_output_cb);
     if (!tool) {
