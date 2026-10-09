@@ -101,7 +101,20 @@ sequenceDiagram
 | THINKING | “识别中…”（不可点） | 等待 STT/LLM/TTS（12s 超时保护） |
 | SPEAKING | “停止播放” | 发送 `abort` 打断播放 |
 
-### 2.2 音频参数
+### 2.2 唤醒词（离线免按键，可选）
+
+开启后（`CONFIG_XZ_WAKEWORD_ENABLE`，默认开）：
+
+- **唤醒词：「小特小特」**（乐鑫预置离线模型 `wn9_xiaotexiaote_tts2`，识别在本机完成，不需要联网）
+- 链路：麦克风 → **ESP-SR AFE**（降噪 + WebRTC VAD）→ WakeNet 唤醒词检测 / VAD 断句
+- **唤醒后自动聆听，停顿 1 秒（可配）自动结束并发送**（VAD 断句）；触摸按钮仍然可用（点按可提前结束/打断）
+- 唤醒仅在 **空闲状态** 生效（播放/思考中忽略检测，避免扬声器声音误触发）
+- 上行音频改为 AFE 降噪后的单声道（对 ASR 更友好）
+- 关键代码：`main/app_audio.c`（AFE 集成、`feed/fetch` 循环）、`main/app_chat.c`（`CHAT_EVT_WAKE` / `CHAT_EVT_VAD_STOP` 事件）
+- 需要分区表中有 **`model` 分区**（已含在 `partitions.csv`），烧录时需一并写入 `build/srmodels/srmodels.bin`（`idf.py flash` 会自动包含）
+- 想换唤醒词：在 `menuconfig → ESP Speech Recognition → Load Multiple Wake Words` 中改选（完整列表见乐鑫 `wakeword_list.md`）；自定义词汇需向乐鑫定制训练
+
+### 2.3 音频参数
 
 | 项目 | 值 | 说明 |
 |---|---|---|

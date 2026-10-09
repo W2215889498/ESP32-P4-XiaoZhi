@@ -24,4 +24,22 @@ menu "XiaoZhi Assistant App"
             麦克风增益。识别不灵敏时可调大（如 24/30），
             背景噪声大或识别含糊时可调小（如 6/12）。
 
+    config XZ_WAKEWORD_ENABLE
+        bool "Enable offline wake word (小特小特 / ESP-SR WakeNet)"
+        default y
+        select SR_WN_WN9_XIAOTEXIAOTE_TTS2
+        help
+            免按键唤醒：说出唤醒词「小特小特」即开始对话（离线识别，不需要联网）。
+            唤醒后自动开始聆听，停顿后自动结束并发送（VAD 断句），
+            触摸按钮仍然可用（点按可提前结束/打断）。
+            需要分区表中包含 model 分区（本项目 partitions.csv 已包含）。
+
+    config XZ_WAKEWORD_AUTO_STOP_MS
+        int "Auto-stop after silence (ms)"
+        depends on XZ_WAKEWORD_ENABLE
+        range 400 3000
+        default 1000
+        help
+            唤醒模式下的自动断句时间：检测到说话后，静音超过该时长即自动结束录音并发送。
+
 endmenu

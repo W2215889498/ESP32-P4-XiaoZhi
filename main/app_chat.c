@@ -50,6 +50,15 @@ static char s_assistant_buf[1024];
 
 #define READY_STATUS "就绪，点击按钮和我说话"
 
+// 交互事件（触摸按钮 / 唤醒词 / VAD 自动断句）
+typedef enum {
+    CHAT_EVT_TAP = 0,       // 触摸按钮点击
+    CHAT_EVT_WAKE = 1,      // 离线唤醒词命中
+    CHAT_EVT_VAD_STOP = 2,  // VAD 判定"说完了"
+} chat_evt_t;
+
+static volatile bool s_listen_from_wake = false;  // 本次聆听是否由唤醒词发起（决定是否自动断句）
+
 // ------------------------------------------------------------------ 事件
 
 static void chat_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -158,10 +167,52 @@ static void audio_tx_cb(const uint8_t *opus, size_t len)
 
 void app_chat_handle_tap(void)
 {
-    uint8_t msg = 1;
+    uint8_t ev = CHAT_EVT_TAP;
     if (s_tap_q) {
-        xQueueSend(s_tap_q, &msg, 0);
+        xQueueSend(s_tap_q, &ev, 0);
     }
+}
+
+static void chat_wake_event(void)
+{
+    uint8_t ev = CHAT_EVT_WAKE;
+    if (s_tap_q) {
+        xQueueSend(s_tap_q, &ev, 0);
+    }
+}
+
+static void chat_vad_stop_event(void)
+{
+    uint8_t ev = CHAT_EVT_VAD_STOP;
+    if (s_tap_q) {
+        xQueueSend(s_tap_q, &ev, 0);
+    }
+}
+
+static void begin_listening(bool from_wake)
+{
+    memset(s_assistant_buf, 0, sizeof(s_assistant_buf));
+    app_ui_clear_texts();
+    if (esp_xiaozhi_chat_send_start_listening(s_chat, ESP_XIAOZHI_CHAT_LISTENING_MODE_MANUAL) != ESP_OK) {
+        ESP_LOGW(TAG, "send listen start failed");
+        return;
+    }
+    s_state = ST_LISTENING;
+    s_listen_from_wake = from_wake;
+    app_audio_set_send_enabled(true);
+    app_ui_set_button(APP_UI_BTN_STOP_LISTEN);
+    app_ui_set_status(from_wake ? "已唤醒，请说话（停顿即发送）" : "正在聆听，说完点一下按钮");
+}
+
+static void begin_thinking(void)
+{
+    esp_xiaozhi_chat_send_stop_listening(s_chat);
+    s_state = ST_THINKING;
+    s_listen_from_wake = false;
+    s_thinking_since = xTaskGetTickCount();
+    app_audio_set_send_enabled(false);
+    app_ui_set_button(APP_UI_BTN_THINKING);
+    app_ui_set_status("TK助手正在思考…");
 }
 
 static void handle_tap(void)
@@ -171,25 +222,11 @@ static void handle_tap(void)
     }
     switch (s_state) {
     case ST_IDLE:
-        memset(s_assistant_buf, 0, sizeof(s_assistant_buf));
-        app_ui_clear_texts();
-        if (esp_xiaozhi_chat_send_start_listening(s_chat, ESP_XIAOZHI_CHAT_LISTENING_MODE_MANUAL) != ESP_OK) {
-            ESP_LOGW(TAG, "send listen start failed");
-            break;
-        }
-        s_state = ST_LISTENING;
-        app_audio_set_send_enabled(true);
-        app_ui_set_button(APP_UI_BTN_STOP_LISTEN);
-        app_ui_set_status("正在聆听，说完点一下按钮");
+        begin_listening(false);
         break;
 
     case ST_LISTENING:
-        esp_xiaozhi_chat_send_stop_listening(s_chat);
-        s_state = ST_THINKING;
-        s_thinking_since = xTaskGetTickCount();
-        app_audio_set_send_enabled(false);
-        app_ui_set_button(APP_UI_BTN_THINKING);
-        app_ui_set_status("TK助手正在思考…");
+        begin_thinking();
         break;
 
     case ST_SPEAKING:
@@ -205,11 +242,32 @@ static void handle_tap(void)
     }
 }
 
+// 唤醒词命中（音频任务回调入队）：空闲时直接开始聆听
+static void handle_wake(void)
+{
+    if (!s_chat || s_state != ST_IDLE) {
+        return;
+    }
+    ESP_LOGI(TAG, "wake word detected");
+    begin_listening(true);
+}
+
+// VAD 判定说完：仅"唤醒发起"的聆听会话自动结束
+static void handle_vad_stop(void)
+{
+    if (!s_chat || s_state != ST_LISTENING || !s_listen_from_wake) {
+        return;
+    }
+    ESP_LOGI(TAG, "vad silence detected, stop listening");
+    begin_thinking();
+}
+
 // ------------------------------------------------------------------ 任务
 
 static void cleanup_session(void)
 {
     s_state = ST_OFFLINE;
+    s_listen_from_wake = false;
     app_audio_set_send_enabled(false);
     app_audio_flush_playback();
     app_ui_set_button(APP_UI_BTN_DISABLED);
@@ -327,9 +385,13 @@ static void chat_task(void *arg)
                 break;
             }
 
-            uint8_t tap;
-            if (xQueueReceive(s_tap_q, &tap, pdMS_TO_TICKS(200)) == pdTRUE) {
-                if (tap) {
+            uint8_t ev;
+            if (xQueueReceive(s_tap_q, &ev, pdMS_TO_TICKS(200)) == pdTRUE) {
+                if (ev == CHAT_EVT_WAKE) {
+                    handle_wake();
+                } else if (ev == CHAT_EVT_VAD_STOP) {
+                    handle_vad_stop();
+                } else {
                     handle_tap();
                 }
             }
@@ -361,6 +423,8 @@ esp_err_t app_chat_start(void)
     }
 
     app_audio_register_tx(audio_tx_cb);
+    app_audio_register_wake(chat_wake_event);
+    app_audio_register_vad_stop(chat_vad_stop_event);
 
     esp_err_t ret = esp_event_handler_register(ESP_XIAOZHI_CHAT_EVENTS, ESP_EVENT_ANY_ID, chat_event_handler, NULL);
     if (ret != ESP_OK) {

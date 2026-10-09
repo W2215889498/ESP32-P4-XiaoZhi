@@ -26,6 +26,12 @@
 
 #include "bsp/esp-bsp.h"
 
+#if CONFIG_XZ_WAKEWORD_ENABLE
+#include "esp_afe_sr_iface.h"
+#include "esp_afe_sr_models.h"
+#include "model_path.h"
+#endif
+
 #define AUDIO_SAMPLE_RATE     16000
 #define AUDIO_CHANNELS        2          // I2S 物理通道（codec 侧）
 #define AUDIO_BITS            16
@@ -55,6 +61,17 @@ static QueueHandle_t s_opus_q = NULL;
 
 static volatile bool s_send_enabled = false;
 static app_audio_tx_cb_t s_tx_cb = NULL;
+static app_audio_event_cb_t s_wake_cb = NULL;
+static app_audio_event_cb_t s_vad_stop_cb = NULL;
+
+#define AFE_MAX_FEED_SAMPLES 1024
+
+#if CONFIG_XZ_WAKEWORD_ENABLE
+static const esp_afe_sr_iface_t *s_afe = NULL;
+static esp_afe_sr_data_t *s_afe_data = NULL;
+static int s_feed_samples = 0;
+static volatile bool s_vad_speech_seen = false;
+#endif
 
 // ---------------------------------------------------------------- 下行（播放）
 
@@ -147,6 +164,11 @@ static void playback_task(void *arg)
 
 void app_audio_set_send_enabled(bool enabled)
 {
+#if CONFIG_XZ_WAKEWORD_ENABLE
+    if (enabled && !s_send_enabled) {
+        s_vad_speech_seen = false;   // 新一轮聆听：重置 VAD 状态，避免误触发自动结束
+    }
+#endif
     s_send_enabled = enabled;
 }
 
@@ -155,15 +177,102 @@ void app_audio_register_tx(app_audio_tx_cb_t cb)
     s_tx_cb = cb;
 }
 
+void app_audio_register_wake(app_audio_event_cb_t cb)
+{
+    s_wake_cb = cb;
+}
+
+void app_audio_register_vad_stop(app_audio_event_cb_t cb)
+{
+    s_vad_stop_cb = cb;
+}
+
 static void mic_task(void *arg)
 {
     (void)arg;
-    static int16_t raw[MIC_READ_BYTES / sizeof(int16_t)];
-    static int16_t mono[FRAME_SAMPLES];
+    static int16_t raw[AFE_MAX_FEED_SAMPLES * AUDIO_CHANNELS];
+    static int16_t mono[AFE_MAX_FEED_SAMPLES];
     static uint8_t opus_buf[OPUS_OUT_BUF_SIZE];
+#if CONFIG_XZ_WAKEWORD_ENABLE
+    static int16_t send_frame[FRAME_SAMPLES];
+    int send_fill = 0;
+#endif
 
     while (1) {
-        int ret = esp_codec_dev_read(s_mic, raw, sizeof(raw));
+#if CONFIG_XZ_WAKEWORD_ENABLE
+        if (s_afe_data) {
+            // ---------- AFE 路径：唤醒词 + VAD + 降噪后的上行 ----------
+            int nbytes = s_feed_samples * AUDIO_CHANNELS * (int)sizeof(int16_t);
+            int ret = esp_codec_dev_read(s_mic, raw, nbytes);
+            if (ret != ESP_CODEC_DEV_OK) {
+                ESP_LOGW(TAG, "mic read failed: %d", ret);
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
+            }
+            // 双声道 -> 单声道，喂给 AFE
+            for (int i = 0; i < s_feed_samples; i++) {
+                int32_t mix = (int32_t)raw[2 * i] + (int32_t)raw[2 * i + 1];
+                mono[i] = (int16_t)(mix / 2);
+            }
+            s_afe->feed(s_afe_data, mono);
+
+            afe_fetch_result_t *res = s_afe->fetch(s_afe_data);   // 阻塞到下一帧（≤2s）
+            if (!res || res->ret_value == ESP_FAIL) {
+                continue;
+            }
+
+            // 唤醒词检测
+            if (res->wakeup_state == WAKENET_DETECTED && s_wake_cb) {
+                s_wake_cb();
+            }
+
+            // VAD：speech -> silence 的下降沿，回调一次（用于自动断句）
+            if (res->vad_state == VAD_SPEECH) {
+                s_vad_speech_seen = true;
+            } else if (s_vad_speech_seen) {
+                s_vad_speech_seen = false;
+                if (s_vad_stop_cb) {
+                    s_vad_stop_cb();
+                }
+            }
+
+            // 上行：把 AFE 输出（单声道）攒满 60ms 再编码发送
+            if (s_send_enabled && s_tx_cb && s_opus_enc && res->data && res->data_size > 0) {
+                int samples = res->data_size / (int)sizeof(int16_t);
+                const int16_t *src = res->data;
+                while (samples > 0) {
+                    int space = FRAME_SAMPLES - send_fill;
+                    int n = samples < space ? samples : space;
+                    memcpy(&send_frame[send_fill], src, n * sizeof(int16_t));
+                    send_fill += n;
+                    src += n;
+                    samples -= n;
+                    if (send_fill == FRAME_SAMPLES) {
+                        esp_audio_enc_in_frame_t in_frame = {
+                            .buffer = (uint8_t *)send_frame,
+                            .len = sizeof(send_frame),
+                        };
+                        esp_audio_enc_out_frame_t out_frame = {
+                            .buffer = opus_buf,
+                            .len = sizeof(opus_buf),
+                        };
+                        esp_audio_err_t enc_ret = esp_opus_enc_process(s_opus_enc, &in_frame, &out_frame);
+                        if (enc_ret == ESP_AUDIO_ERR_OK && out_frame.encoded_bytes > 0) {
+                            s_tx_cb(opus_buf, out_frame.encoded_bytes);
+                        } else if (enc_ret != ESP_AUDIO_ERR_OK) {
+                            ESP_LOGW(TAG, "opus encode failed: %d", enc_ret);
+                        }
+                        send_fill = 0;
+                    }
+                }
+            } else {
+                send_fill = 0;
+            }
+            continue;
+        }
+#endif
+        // ---------- 直通路径（未启用唤醒词，或 AFE 初始化失败时的降级） ----------
+        int ret = esp_codec_dev_read(s_mic, raw, MIC_READ_BYTES);
         if (ret != ESP_CODEC_DEV_OK) {
             ESP_LOGW(TAG, "mic read failed: %d", ret);
             vTaskDelay(pdMS_TO_TICKS(20));
@@ -181,7 +290,7 @@ static void mic_task(void *arg)
 
         esp_audio_enc_in_frame_t in_frame = {
             .buffer = (uint8_t *)mono,
-            .len = sizeof(mono),
+            .len = (uint32_t)(FRAME_SAMPLES * sizeof(int16_t)),
         };
         esp_audio_enc_out_frame_t out_frame = {
             .buffer = opus_buf,
@@ -269,6 +378,47 @@ esp_err_t app_audio_init(void)
         ESP_LOGE(TAG, "opus decoder open failed: %d", aerr);
         return ESP_FAIL;
     }
+
+#if CONFIG_XZ_WAKEWORD_ENABLE
+    // ---------------- ESP-SR：离线唤醒词（小特小特）+ VAD 自动断句 ----------------
+    srmodel_list_t *models = esp_srmodel_init("model");
+    if (!models) {
+        ESP_LOGE(TAG, "srmodel init failed (model partition 没烧录？)");
+    }
+    char *wn_name = models ? esp_srmodel_filter(models, ESP_WN_PREFIX, NULL) : NULL;
+    ESP_LOGI(TAG, "wake word model: %s", wn_name ? wn_name : "(none)");
+
+    afe_config_t *afe_cfg = afe_config_init("M", models, AFE_TYPE_SR, AFE_MODE_HIGH_PERF);
+    if (afe_cfg) {
+        afe_cfg->aec_init = false;   // 暂不启用回声消除（无回采参考）
+        afe_cfg->wakenet_init = true;
+        if (wn_name) {
+            afe_cfg->wakenet_model_name = wn_name;
+        }
+        afe_cfg->vad_init = true;    // WebRTC VAD（自动断句用）
+        afe_cfg->vad_min_noise_ms = CONFIG_XZ_WAKEWORD_AUTO_STOP_MS;
+        afe_cfg->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+        afe_cfg->afe_perferred_core = 1;
+        afe_cfg->afe_perferred_priority = 5;
+        const esp_afe_sr_iface_t *afe = esp_afe_handle_from_config(afe_cfg);
+        if (afe) {
+            s_afe = afe;
+            s_afe_data = afe->create_from_config(afe_cfg);
+            if (s_afe_data) {
+                s_feed_samples = afe->get_feed_chunksize(s_afe_data);
+                ESP_LOGI(TAG, "AFE ready: feed %d samples/ch", s_feed_samples);
+                if (s_feed_samples <= 0 || s_feed_samples > AFE_MAX_FEED_SAMPLES) {
+                    ESP_LOGE(TAG, "unexpected feed chunk %d, disable AFE", s_feed_samples);
+                    s_afe_data = NULL;
+                }
+            }
+        }
+        afe_config_free(afe_cfg);
+    }
+    if (!s_afe_data) {
+        ESP_LOGW(TAG, "AFE unavailable: wake word disabled, fallback to direct mic path");
+    }
+#endif
 
     s_opus_q = xQueueCreate(OPUS_QUEUE_LEN, sizeof(opus_pkt_t));
     if (!s_opus_q) {

@@ -20,3 +20,6 @@ dependencies:
   # ESP-Hosted：P4 通过 SDIO 使用板载 C6（锁定出厂匹配线）
   espressif/esp_hosted: "1.4.7"
   espressif/esp_wifi_remote: "0.14.5"
+
+  # 语音前端 + 离线唤醒词（WakeNet：小特小特）+ VAD 自动断句
+  espressif/esp-sr: "^2.5.5"

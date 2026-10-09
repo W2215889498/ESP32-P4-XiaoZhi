@@ -77,6 +77,16 @@ CONFIG_BSP_LCD_DPI_BUFFER_NUMS=3
 CONFIG_BSP_LCD_COLOR_FORMAT_RGB565=y
 CONFIG_CODEC_I2C_BACKWARD_COMPATIBLE=n
 
+# ---------------- 离线唤醒词 / 语音前端（ESP-SR）----------------
+# 唤醒词「小特小特」（wn9_xiaotexiaote_tts2），离线识别；唤醒后 VAD 自动断句。
+CONFIG_XZ_WAKEWORD_ENABLE=y
+CONFIG_XZ_WAKEWORD_AUTO_STOP_MS=1000
+CONFIG_MODEL_IN_FLASH=y
+CONFIG_AFE_INTERFACE_V1=y
+# 模型选择（XZ_WAKEWORD_ENABLE 的 select 也会打开；此处显式写出便于检索/替换唤醒词）
+CONFIG_SR_WN_WN9_XIAOTEXIAOTE_TTS2=y
+# NS/VAD 使用默认 WebRTC（体积小、够用）
+
 # ---------------- Xiaozhi 服务端地址 ----------------
 # 占位值；真实值请放在 sdkconfig.defaults.local（已被 .gitignore 忽略），
 # 用 SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.local" 生成配置，
