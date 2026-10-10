@@ -234,7 +234,7 @@ LLM 逐句文本 → TTS 合成(16k mono PCM) → Opus 编码(60ms/帧)
 | Provider | 说明 | 需要 Key |
 |---|---|---|
 | **`edge`（默认）** | 微软 Edge 在线语音（edge-tts），中文效果好、免费；需要能访问微软服务 | 否 |
-| `openai` | OpenAI 兼容 `/audio/speech`（推荐硅基流动 CosyVoice2，16k） | 是（`XZ_TTS_API_KEY`） |
+| `openai` | OpenAI 兼容 `/audio/speech`（推荐硅基流动 CosyVoice2，16k；也可指向同事的 VoiceStudio TTS 本地服务，见 `docs/VOICESTUDIO_TTS_API.md`） | 云服务需要（`XZ_TTS_API_KEY`），本机/局域网服务可留空 |
 | `mock` | 蜂鸣音，用于离线自测 | 否 |
 
 **自动兜底**：把 `XZ_TTS_PROVIDER` 保持 `edge` 并额外填 `XZ_TTS_API_KEY`（含 base_url/model/voice）时，edge 连接失败会在本会话内自动切到 OpenAI 兼容 TTS（`FallbackTTS`）。

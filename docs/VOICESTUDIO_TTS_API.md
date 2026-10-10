@@ -1,5 +1,23 @@
 # VoiceStudio TTS 服务接口文档（对接 TK 助手 · 文字转语音）
 
+> **已接入（实际部署）**：同事的服务在 `http://192.168.5.233:3900`，恰好按本文档的 OpenAI 兼容契约实现：
+> - `POST /v1/audio/speech`，请求 JSON `{"input": "..."}`（多余字段会自动忽略）
+> - 返回 **WAV（16-bit PCM / 单声道 / 24kHz）** 二进制
+> - `GET /health`：模型加载中返回 503，就绪返回 200（接入前先看它）
+>
+> 本项目**零代码接入**（用现成的 `openai` provider），`.env` 配置：
+>
+> ```dotenv
+> XZ_TTS_PROVIDER=openai
+> XZ_TTS_BASE_URL=http://192.168.5.233:3900/v1
+> XZ_TTS_API_KEY=
+> XZ_TTS_MODEL=voicestudio   # 任意值，对方忽略
+> XZ_TTS_VOICE=default       # 任意值，对方忽略
+> ```
+>
+> 验证：`cd server` + `.\.venv\Scripts\python.exe tools\tts_test.py` → 生成 `tools\tts_test_out.wav` 试听。
+> 说明：设备最终播放还会经过服务端“响度标准化”（`XZ_TTS_NORMALIZE` / `XZ_TTS_EXTRA_GAIN_DB`），测试脚本输出的是**原始电平**，两者略有差异属正常。
+
 > **用途**：同事从 [VoiceStudio](https://github.com/debpalash/VoiceStudio) 提取的"纯净版服务"，作为本项目（TK 助手）的**文字转语音（TTS）**引擎。按本文档实现/确认接口后，本项目**无需改代码**，只改几行 `.env` 即可接入。
 >
 > 对接拓扑：
