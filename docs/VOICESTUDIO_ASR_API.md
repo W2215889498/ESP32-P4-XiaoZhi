@@ -157,3 +157,41 @@ XZ_ASR_LANGUAGE=zh
 
 请尽量向上面的 OpenAI 兼容格式靠拢（这是事实标准，改动最小）。
 若无法兼容，请把实际接口（路径、请求字段、响应结构、音频格式）发回来，我在 `server/app/providers/asr.py` 里新增一个 provider（约 30 行）来适配，同样不用动其余逻辑。
+
+---
+
+## 附二（推荐）：给同事的最小兼容路由示例（约 15 行，建议实现）
+
+在现有 FastAPI 服务里**复用现有转录逻辑**，只加一个 OpenAI 兼容的别名路由（内部实现完全不动）：
+
+```python
+@app.post("/v1/audio/transcriptions")
+async def openai_compat(
+    file: UploadFile = File(...),
+    model: str = Form("whisper"),          # 接受并忽略
+    language: str = Form("zh"),
+    response_format: str = Form("json"),   # 接受并忽略
+):
+    # 直接调用你们现有 /transcribe 的处理函数（函数名按实际代码改）
+    result = await transcribe_audio(file=file, language=language)
+    return {"text": (result.get("result") or {}).get("text", "")}
+```
+
+加好后，我方切换到**通用通道**（零代码改动）：
+
+```dotenv
+XZ_ASR_PROVIDER=openai
+XZ_ASR_BASE_URL=http://192.168.5.102:7778/v1
+```
+
+**好处**
+- 对我方（TK 助手中台）：从此接任何 OpenAI 兼容 ASR（OpenAI / 硅基流动 / Groq / LM Studio / whisper.cpp server …）都只改 `.env`，不再为每家写适配器
+- 对同事：`/v1/audio/transcriptions` 是事实标准，他的服务从此能被任何 OpenAI 兼容客户端使用，更通用
+- 现有 `/transcribe` 路由保留不动，向前兼容；我方已有的 `voicestudio` provider 也保留作兜底
+
+**验证**：加好路由后执行
+```powershell
+curl.exe -X POST http://192.168.5.102:7778/v1/audio/transcriptions `
+  -F "file=@server\tools\asr_test_zh.wav;type=audio/wav" -F "model=x" -F "language=zh" -F "response_format=json"
+# 期望：{"text":"你好小智,今天天气怎么样?"}
+```
