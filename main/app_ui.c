@@ -5,6 +5,7 @@
 
 #include "app_ui.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -13,6 +14,8 @@
 
 #include "bsp/esp-bsp.h"
 #include "bsp/display.h"
+
+#include "app_audio.h"
 
 #define COLOR_BG        0x0F1216
 #define COLOR_HEADER    0x161B22
@@ -51,6 +54,29 @@ static void btn_event_cb(lv_event_t *e)
     if (s_tap_cb) {
         s_tap_cb();
     }
+}
+
+// 需要在 LVGL 上下文中调用（不加锁）：更新右上角状态文字
+static void set_status_locked(const char *text)
+{
+    if (!s_status) {
+        return;
+    }
+    lv_label_set_text(s_status, text ? text : "");
+    lv_obj_align(s_status, LV_ALIGN_RIGHT_MID, 0, 0);
+}
+
+// 音量 -/+ 按钮：user_data 携带增减步长（±10）
+static void volume_btn_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    app_audio_set_volume(app_audio_get_volume() + delta);
+    char buf[24];
+    snprintf(buf, sizeof(buf), "音量：%d", app_audio_get_volume());
+    set_status_locked(buf);
 }
 
 static void apply_button_locked(void)
@@ -198,6 +224,31 @@ esp_err_t app_ui_init(void)
     lv_obj_set_style_text_color(s_btn_label, lv_color_hex(0xFFFFFF), 0);
     apply_button_locked();
 
+    // ---------------- 音量 -/+ 按钮（左下 / 右下） ----------------
+    lv_obj_t *btn_minus = lv_button_create(scr);
+    lv_obj_set_size(btn_minus, 110, 64);
+    lv_obj_align(btn_minus, LV_ALIGN_BOTTOM_LEFT, 20, -20);
+    lv_obj_set_style_radius(btn_minus, 32, 0);
+    lv_obj_set_style_bg_color(btn_minus, lv_color_hex(0x3A3F46), 0);
+    lv_obj_add_event_cb(btn_minus, volume_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-10);
+    lv_obj_t *lm = lv_label_create(btn_minus);
+    lv_label_set_text(lm, "音量-");
+    lv_obj_set_style_text_font(lm, s_font, 0);
+    lv_obj_set_style_text_color(lm, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(lm);
+
+    lv_obj_t *btn_plus = lv_button_create(scr);
+    lv_obj_set_size(btn_plus, 110, 64);
+    lv_obj_align(btn_plus, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
+    lv_obj_set_style_radius(btn_plus, 32, 0);
+    lv_obj_set_style_bg_color(btn_plus, lv_color_hex(0x3A3F46), 0);
+    lv_obj_add_event_cb(btn_plus, volume_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)10);
+    lv_obj_t *lp = lv_label_create(btn_plus);
+    lv_label_set_text(lp, "音量+");
+    lv_obj_set_style_text_font(lp, s_font, 0);
+    lv_obj_set_style_text_color(lp, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(lp);
+
     bsp_display_unlock();
 
     ESP_LOGI(TAG, "ui ready");
@@ -215,8 +266,7 @@ void app_ui_set_status(const char *text)
         return;
     }
     bsp_display_lock(-1);
-    lv_label_set_text(s_status, text ? text : "");
-    lv_obj_align(s_status, LV_ALIGN_RIGHT_MID, 0, 0);
+    set_status_locked(text);
     bsp_display_unlock();
 }
 

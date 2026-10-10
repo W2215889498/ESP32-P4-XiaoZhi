@@ -37,8 +37,11 @@ void app_audio_play_opus(const uint8_t *opus, size_t len);
 /** 丢掉尚未播放的 TTS 音频（打断/结束时）。 */
 void app_audio_flush_playback(void);
 
-/** 设置喇叭音量 0-100。 */
+/** 设置喇叭音量 0-100（自动钳制并写入 NVS，重启后保持）。 */
 void app_audio_set_volume(int volume);
+
+/** 读取当前喇叭音量 0-100。 */
+int app_audio_get_volume(void);
 
 #ifdef __cplusplus
 }

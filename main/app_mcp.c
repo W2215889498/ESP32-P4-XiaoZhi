@@ -13,6 +13,8 @@
 #include "esp_check.h"
 #include "driver/gpio.h"
 
+#include "app_audio.h"
+
 #include "esp_mcp_tool.h"
 #include "esp_mcp_property.h"
 #include "esp_mcp_data.h"
@@ -68,6 +70,26 @@ static esp_mcp_value_t gpio_set_output_cb(const esp_mcp_property_list_t *propert
     return esp_mcp_value_create_string(msg);
 }
 
+// ---------------- 扬声器音量工具（语音控制："声音大一点/小一点"）----------------
+
+static esp_mcp_value_t speaker_set_volume_cb(const esp_mcp_property_list_t *properties)
+{
+    char msg[96];
+    int volume = esp_mcp_property_list_get_property_int(properties, "volume");
+    app_audio_set_volume(volume);
+    snprintf(msg, sizeof(msg), "已把扬声器音量设置为 %d（范围 0-100）。", app_audio_get_volume());
+    ESP_LOGI(TAG, "%s", msg);
+    return esp_mcp_value_create_string(msg);
+}
+
+static esp_mcp_value_t speaker_get_volume_cb(const esp_mcp_property_list_t *properties)
+{
+    (void)properties;
+    char msg[64];
+    snprintf(msg, sizeof(msg), "当前扬声器音量是 %d（范围 0-100）。", app_audio_get_volume());
+    return esp_mcp_value_create_string(msg);
+}
+
 esp_err_t app_mcp_init(void)
 {
     ESP_RETURN_ON_FALSE(s_mcp == NULL, ESP_OK, TAG, "already initialized");
@@ -100,7 +122,26 @@ esp_err_t app_mcp_init(void)
         return ret;
     }
 
-    ESP_LOGI(TAG, "mcp ready: self.gpio.set_output");
+    // 扬声器音量：设置 + 查询
+    esp_mcp_tool_t *vol_tool = esp_mcp_tool_create(
+        "self.audio_speaker.set_volume",
+        "设置开发板扬声器音量。volume 为 0-100 的整数，数字越大声音越大。"
+        "用户说声音太小/太大、调大/调小、静音时调用；如果要按相对量调整，可先调用 self.audio_speaker.get_volume 查询当前值。",
+        speaker_set_volume_cb);
+    if (vol_tool) {
+        esp_mcp_tool_add_property(vol_tool, esp_mcp_property_create_with_int_and_range("volume", 70, 0, 100));
+        esp_mcp_add_tool(s_mcp, vol_tool);
+    }
+
+    esp_mcp_tool_t *vol_get = esp_mcp_tool_create(
+        "self.audio_speaker.get_volume",
+        "查询开发板扬声器当前音量（0-100）。",
+        speaker_get_volume_cb);
+    if (vol_get) {
+        esp_mcp_add_tool(s_mcp, vol_get);
+    }
+
+    ESP_LOGI(TAG, "mcp ready: self.gpio.set_output, self.audio_speaker.set_volume, self.audio_speaker.get_volume");
     return ESP_OK;
 }
 

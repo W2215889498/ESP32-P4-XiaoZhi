@@ -18,6 +18,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_codec_dev.h"
+#include "nvs.h"
 
 #include "esp_audio_types.h"
 #include "esp_audio_dec.h"
@@ -63,6 +64,7 @@ static volatile bool s_send_enabled = false;
 static app_audio_tx_cb_t s_tx_cb = NULL;
 static app_audio_event_cb_t s_wake_cb = NULL;
 static app_audio_event_cb_t s_vad_stop_cb = NULL;
+static int s_volume = CONFIG_XZ_SPEAKER_VOLUME;
 
 #define AFE_MAX_FEED_SAMPLES 1024
 
@@ -307,11 +309,47 @@ static void mic_task(void *arg)
 
 // ---------------------------------------------------------------- 初始化
 
+// 音量持久化（NVS 命名空间 xz_audio / 键 spk_vol）
+static void volume_load_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("xz_audio", NVS_READONLY, &h) == ESP_OK) {
+        int32_t v = 0;
+        if (nvs_get_i32(h, "spk_vol", &v) == ESP_OK && v >= 0 && v <= 100) {
+            s_volume = (int)v;
+        }
+        nvs_close(h);
+    }
+}
+
+static void volume_save_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("xz_audio", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, "spk_vol", s_volume);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
 void app_audio_set_volume(int volume)
 {
-    if (s_spk) {
-        esp_codec_dev_set_out_vol(s_spk, volume);
+    if (volume < 0) {
+        volume = 0;
+    } else if (volume > 100) {
+        volume = 100;
     }
+    s_volume = volume;
+    if (s_spk) {
+        esp_codec_dev_set_out_vol(s_spk, s_volume);
+    }
+    volume_save_nvs();
+    ESP_LOGI(TAG, "speaker volume = %d", s_volume);
+}
+
+int app_audio_get_volume(void)
+{
+    return s_volume;
 }
 
 esp_err_t app_audio_init(void)
@@ -346,7 +384,9 @@ esp_err_t app_audio_init(void)
         ESP_LOGE(TAG, "microphone open failed: %d", ret);
         return ESP_FAIL;
     }
-    esp_codec_dev_set_out_vol(s_spk, CONFIG_XZ_SPEAKER_VOLUME);
+    volume_load_nvs();
+    esp_codec_dev_set_out_vol(s_spk, s_volume);
+    ESP_LOGI(TAG, "speaker volume (init): %d", s_volume);
     esp_codec_dev_set_in_gain(s_mic, (float)CONFIG_XZ_MIC_GAIN_DB);
 
     esp_opus_enc_config_t enc_cfg = {

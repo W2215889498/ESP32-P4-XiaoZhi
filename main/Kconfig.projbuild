@@ -12,9 +12,9 @@ menu "XiaoZhi Assistant App"
         default "mypassword"
 
     config XZ_SPEAKER_VOLUME
-        int "Speaker volume (0-100)"
+        int "Speaker volume (0-100, initial; runtime adjustable)"
         range 0 100
-        default 75
+        default 85
 
     config XZ_MIC_GAIN_DB
         int "Microphone gain (dB, ES7210)"
