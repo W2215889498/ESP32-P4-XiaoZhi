@@ -1,5 +1,24 @@
 # VoiceStudio ASR 服务接口文档（对接 TK 助手）
 
+> **实际部署与已实现的适配**：同事实际部署的是「Whisper 语音转录 API」（FastAPI，端口 7778），接口为
+> `POST /transcribe`（multipart：`file` + `language`，返回 `{"success":true,"result":{"text":...}}`），
+> **不是** OpenAI 兼容格式。本项目已内置 provider **`voicestudio`** 完成适配，`.env` 配置：
+>
+> ```dotenv
+> XZ_ASR_PROVIDER=voicestudio
+> XZ_ASR_BASE_URL=http://192.168.5.102:7778
+> ```
+>
+> 验证：`cd server` + `.\.venv\Scripts\python.exe tools\asr_test.py`
+> （默认用 `server/tools/asr_test_zh.wav`，应输出「你好小智，今天天气怎么样？」）。
+>
+> **已知排障**：若服务返回 `{"success":false,"error":"[WinError 2] 系统找不到指定的文件。"}`，
+> 说明服务内部缺文件——最常见是 **ffmpeg 未安装或不在服务进程的 PATH 中**（whisper 解码音频依赖
+> ffmpeg，即使输入 WAV 也会调用它）。请在运行该服务的环境执行 `ffmpeg -version` 验证；安装后重启服务。
+> 次常见原因：临时目录/模型文件路径在部署环境不存在（看服务端控制台 traceback 中 WinError 2 对应的文件名即可定位）。
+>
+> 下文保留的 OpenAI 兼容契约作为**备选方案**（对方改版或另有部署时使用）。
+
 > **用途**：同事从 [VoiceStudio](https://github.com/debpalash/VoiceStudio) 提取的"纯净版 ASR 服务"，按本文档确认/实现接口后，本项目（TK 助手的 FastAPI 服务端 `server/`）**无需改代码**，只改 3 行 `.env` 即可接入。
 >
 > 对接拓扑：

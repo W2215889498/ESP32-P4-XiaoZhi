@@ -51,6 +51,35 @@ class OpenAICompatASR(ASR):
         return text
 
 
+class ColleagueWhisperASR(ASR):
+    """同事的 Whisper 转录服务（FastAPI：POST {base}/transcribe，multipart file+language）。
+
+    响应：{"success": true, "result": {"text": "...", "language": "...", "segments": [...]}}
+    错误：{"success": false, "error": "..."} 或非 200 HTTP。
+    """
+
+    name = "voicestudio"
+
+    async def transcribe(self, pcm: bytes, sample_rate: int) -> str:
+        url = settings.asr_base_url.rstrip("/") + "/transcribe"
+        wav = to_wav_bytes(pcm, sample_rate)
+        files = {"file": ("audio.wav", wav, "audio/wav")}
+        data = {"language": settings.asr_language or "zh"}
+        headers = {}
+        if settings.asr_api_key:
+            headers["Authorization"] = f"Bearer {settings.asr_api_key}"
+        timeout = httpx.Timeout(connect=10.0, read=120.0, write=60.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, headers=headers, data=data, files=files)
+            resp.raise_for_status()
+            payload = resp.json()
+        if not payload.get("success", True):
+            raise RuntimeError(f"转录服务返回错误: {payload.get('error') or payload}")
+        text = ((payload.get("result") or {}).get("text") or "").strip()
+        log.info("ASR(voicestudio) -> %r", text[:80])
+        return text
+
+
 class LocalWhisperASR(ASR):
     """本地 faster-whisper：不需要任何 Key，识别在本机完成。
 
@@ -156,6 +185,9 @@ def _local_available() -> bool:
 
 def build_asr() -> ASR:
     provider = settings.asr_provider.lower()
+    if provider in ("voicestudio", "whisper-api", "partner"):
+        log.info("ASR provider: 同事 Whisper 服务 (%s)", settings.asr_base_url or "(未配置 base_url)")
+        return ColleagueWhisperASR()
     if provider in ("local", "whisper", "faster-whisper"):
         log.info("ASR provider: 本地 faster-whisper (%s)", settings.asr_local_model)
         return LocalWhisperASR()

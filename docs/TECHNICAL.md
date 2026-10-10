@@ -162,7 +162,8 @@ sequenceDiagram
 | Provider | 说明 | 需要 Key |
 |---|---|---|
 | **`local`（默认）** | 本机 faster-whisper 离线识别（`server/app/providers/asr.py`），首次运行自动下载模型（国内走 `hf-mirror.com`），已用 `initial_prompt` 强制输出简体中文 | 否 |
-| `openai` | OpenAI 兼容 `/audio/transcriptions`（硅基流动 SenseVoice、Groq、OpenAI…；也可指向同事提取的 VoiceStudio 本地服务，见 `docs/VOICESTUDIO_ASR_API.md`） | 云服务需要（`XZ_ASR_API_KEY`），本机/局域网服务可留空 |
+| `openai` | OpenAI 兼容 `/audio/transcriptions`（硅基流动 SenseVoice、Groq、OpenAI…） | 云服务需要（`XZ_ASR_API_KEY`），本机/局域网服务可留空 |
+| `voicestudio` | 同事的 Whisper 转录服务（`POST /transcribe`，multipart `file`+`language`，局域网 `192.168.5.102:7778`） | 否 |
 | `mock` | 固定文本，用于无 Key 自测链路 | 否 |
 
 本机实测（i9-14900K，CPU int8，模型 small）：3.7s 语音 ≈ 1.7s 出字。模型可调 `tiny/base/small/medium/large-v3`；装 `nvidia-cublas-cu12` + `nvidia-cudnn-cu12` 后可 `XZ_ASR_DEVICE=auto` 自动用 GPU。
