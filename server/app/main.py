@@ -95,7 +95,8 @@ async def health() -> dict:
         "llm": {"provider": settings.llm_provider, "model": settings.llm_model,
                 "configured": bool(settings.llm_api_key)},
         "asr": {"provider": settings.asr_provider, "model": settings.asr_model,
-                "configured": bool(settings.asr_api_key)},
+                "configured": settings.asr_provider in ("local", "voicestudio", "whisper-api", "partner")
+                              or bool(settings.asr_api_key)},
         "tts": {"provider": settings.tts_provider, "voice": settings.tts_voice},
     }
 
