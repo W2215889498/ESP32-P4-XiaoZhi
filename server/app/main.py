@@ -24,6 +24,28 @@ from .session import ChatSession
 log = logging.getLogger("xz.main")
 
 
+def _check_runtime_env() -> None:
+    """启动自检：解释器是否为项目 venv、所选 provider 的依赖是否齐全。"""
+    import importlib.util
+    import sys
+
+    if ".venv" not in sys.executable.replace("\\", "/"):
+        log.warning(
+            "当前 Python 不是项目 venv（%s）！建议用 server\\run.ps1（或双击 run.bat）启动，否则可能缺依赖。",
+            sys.executable,
+        )
+
+    def missing(mod: str) -> bool:
+        return importlib.util.find_spec(mod) is None
+
+    if settings.tts_provider == "edge" and missing("edge_tts"):
+        log.warning("edge-tts 未安装：edge 语音合成会失败（pip install edge-tts）")
+    if missing("miniaudio"):
+        log.warning("miniaudio 未安装：MP3 等压缩音频解码会失败（edge/云 TTS 输出依赖它）")
+    if settings.asr_provider in ("local", "whisper", "faster-whisper") and missing("faster_whisper"):
+        log.warning("faster-whisper 未安装：本机 ASR 不可用")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logging.basicConfig(
@@ -41,6 +63,8 @@ async def lifespan(_: FastAPI):
         log.info("audio: libopus OK (Opus 16k/mono/60ms)")
     else:
         log.error("audio: libopus MISSING (%s) - device audio will not work", opus_error())
+    _check_runtime_env()
+
     log.info("listening on http://%s:%d  (ws path /xiaozhi/v1/)", settings.host, settings.port)
     yield
 

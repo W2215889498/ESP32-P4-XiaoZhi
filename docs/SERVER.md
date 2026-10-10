@@ -34,11 +34,9 @@ listening on http://0.0.0.0:8000  (ws path /xiaozhi/v1/)
 Uvicorn running on http://0.0.0.0:8000
 ```
 
-> 不想用 `run.ps1` 的话，等价命令：
-> ```powershell
-> cd ...\server
-> .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-> ```
+> 想敲命令的话：`.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000`
+>
+> **更省事：直接双击 `server\run.bat`**（效果与 run.ps1 相同，永远使用项目 venv，避免"激活没生效"的坑）。
 
 ---
 
@@ -130,6 +128,7 @@ Register-ScheduledTask -TaskName "TKAssistantServer" -Action $action -Trigger $t
 | 识别不准 | `server\.env` 改 `XZ_ASR_LOCAL_MODEL=medium`（或 `large-v3`，需好显卡配置）后重启 |
 | 首次启动很慢 | 本地 ASR 首次运行会从 `hf-mirror.com` 下载模型（small 约 460MB），之后启动很快 |
 | 防火墙 | 管理员 PowerShell 执行一次：`New-NetFirewallRule -DisplayName "Xiaozhi Server 8000" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow` |
+| 日志出现"当前 Python 不是项目 venv"警告 | 启动时用的不是项目虚拟环境（常见原因：PowerShell 激活后命令解析仍指向全局 Python）。改用 `.\run.ps1` 或双击 `run.bat`；若同时提示缺依赖，按提示 `pip install` 即可 |
 
 ---
 
