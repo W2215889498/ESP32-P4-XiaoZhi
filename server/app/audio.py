@@ -166,6 +166,31 @@ def to_wav_bytes(pcm: bytes, sample_rate: int, channels: int = 1) -> bytes:
     return buf.getvalue()
 
 
+def apply_output_gain(
+    pcm: bytes,
+    target_dbfs: float = -1.0,
+    max_gain_db: float = 12.0,
+    extra_gain_db: float = 0.0,
+) -> bytes:
+    """TTS 输出响度处理：峰值标准化到 target_dbfs（放大上限 max_gain_db），再叠加固定增益。
+
+    小喇叭/功放音量到顶后仍偏小时，用数字增益继续拉响度（代价：过大时削波失真）。
+    """
+    if not pcm:
+        return pcm
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float32)
+    peak = float(np.abs(x).max()) if x.size else 0.0
+    if peak <= 1.0:
+        return pcm
+    target = 32768.0 * (10.0 ** (target_dbfs / 20.0))
+    gain = min(target / peak, 10.0 ** (max_gain_db / 20.0))
+    gain *= 10.0 ** (extra_gain_db / 20.0)
+    if abs(gain - 1.0) < 0.01:
+        return pcm
+    y = np.clip(x * gain, -32768.0, 32767.0).astype("<i2")
+    return y.tobytes()
+
+
 def decode_compressed_to_pcm16(data: bytes, sample_rate: int) -> bytes:
     """Decode MP3/FLAC/WAV (whatever miniaudio supports) to mono PCM16LE."""
     import miniaudio

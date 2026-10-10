@@ -17,7 +17,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from . import __version__, protocol
-from .audio import OpusCodec, pcm_rms
+from .audio import OpusCodec, apply_output_gain, pcm_rms
 from .config import settings
 from .providers import build_asr, build_llm, build_tts
 
@@ -332,6 +332,13 @@ class ChatSession:
         log.info("[%s] TTS: %r", self.remote, sentence[:60])
         await self._send_json(protocol.tts(protocol.TTS_SENTENCE_START, sentence))
         pcm = await self.tts.synthesize(sentence)
+        if pcm and (settings.tts_normalize or settings.tts_extra_gain_db != 0.0):
+            pcm = apply_output_gain(
+                pcm,
+                target_dbfs=settings.tts_normalize_dbfs,
+                max_gain_db=settings.tts_max_gain_db,
+                extra_gain_db=settings.tts_extra_gain_db,
+            )
         await self.send_pcm(pcm)
 
     # -------------------------------------------------------------------- MCP

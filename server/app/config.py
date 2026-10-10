@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     vad_threshold: int = 350
     vad_silence_ms: int = 800
 
+    # TTS 输出响度（数字增益；弥补小喇叭/功放音量上限，改 .env 后重启即可，无需重烧固件）
+    tts_normalize: bool = True          # 把每句 TTS 峰值标准化到 tts_normalize_dbfs
+    tts_normalize_dbfs: float = -1.0    # 目标峰值（dBFS）
+    tts_max_gain_db: float = 12.0       # 标准化最多放大多少 dB
+    tts_extra_gain_db: float = 0.0      # 在标准化之后再叠加的固定增益（想更响可调 3/6）
+
 
 settings = Settings()
 
