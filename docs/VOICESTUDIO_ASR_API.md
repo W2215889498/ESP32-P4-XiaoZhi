@@ -96,8 +96,8 @@ curl.exe -X POST http://127.0.0.1:3900/v1/audio/transcriptions `
 ```dotenv
 XZ_ASR_PROVIDER=openai
 XZ_ASR_BASE_URL=http://127.0.0.1:3900/v1
-XZ_ASR_API_KEY=
-XZ_ASR_MODEL=whisper        # 任意值，服务端会忽略
+XZ_ASR_API_KEY=             # 本地服务留空即可（已支持免 Key）；如需鉴权填 key
+XZ_ASR_MODEL=whisper        # 服务端忽略即可，随便填
 XZ_ASR_LANGUAGE=zh
 ```
 

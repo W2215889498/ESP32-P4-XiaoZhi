@@ -16,3 +16,6 @@ __pycache__/
 
 # ===== 鍏朵粬 =====
 *.log
+
+# 服务端测试产物
+tts_test_out.wav

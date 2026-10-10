@@ -9,7 +9,7 @@ import httpx
 import numpy as np
 
 from ..audio import decode_compressed_to_pcm16, float_to_pcm16
-from ..config import settings
+from ..config import is_local_service_url, settings
 
 log = logging.getLogger("xz.tts")
 
@@ -48,7 +48,9 @@ class OpenAICompatTTS(TTS):
 
     async def synthesize(self, text: str) -> bytes:
         url = settings.tts_base_url.rstrip("/") + "/audio/speech"
-        headers = {"Authorization": f"Bearer {settings.tts_api_key}"}
+        headers = {}
+        if settings.tts_api_key:
+            headers["Authorization"] = f"Bearer {settings.tts_api_key}"
         payload = {
             "model": settings.tts_model,
             "voice": settings.tts_voice,
@@ -116,9 +118,15 @@ def build_tts() -> TTS:
             return FallbackTTS(edge, OpenAICompatTTS())
         log.info("TTS provider: edge-tts (%s)", settings.tts_voice)
         return edge
-    if provider in ("openai", "siliconflow") and settings.tts_api_key:
-        log.info("TTS provider: openai-compatible (%s / %s)", settings.tts_base_url, settings.tts_model)
-        return OpenAICompatTTS()
+    if provider in ("openai", "siliconflow"):
+        if settings.tts_api_key:
+            log.info("TTS provider: openai-compatible (%s / %s)", settings.tts_base_url, settings.tts_model)
+            return OpenAICompatTTS()
+        if is_local_service_url(settings.tts_base_url):
+            log.info("TTS provider: openai-compatible 本地服务 (%s / %s, 免 Key)", settings.tts_base_url, settings.tts_model)
+            return OpenAICompatTTS()
+        log.warning("TTS provider %r 需要 XZ_TTS_API_KEY（或指向本机服务地址）；降级 mock", provider)
+        return MockTTS()
     if provider != "mock":
-        log.warning("TTS provider %r unavailable (missing XZ_TTS_API_KEY?); falling back to mock", provider)
+        log.warning("TTS provider %r unknown; falling back to mock", provider)
     return MockTTS()

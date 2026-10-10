@@ -73,3 +73,10 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def is_local_service_url(url: str) -> bool:
+    """判断是否为本机/局域网服务地址（这类服务允许免 Key 使用）。"""
+    u = (url or "").lower()
+    return any(tag in u for tag in ("127.0.0.1", "localhost", "://0.0.0.0", "://192.168.", "://10."))
+

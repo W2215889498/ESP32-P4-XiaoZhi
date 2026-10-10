@@ -13,7 +13,7 @@ import httpx
 import numpy as np
 
 from ..audio import to_wav_bytes
-from ..config import settings
+from ..config import is_local_service_url, settings
 
 log = logging.getLogger("xz.asr")
 
@@ -38,7 +38,9 @@ class OpenAICompatASR(ASR):
         data = {"model": settings.asr_model, "response_format": "json"}
         if settings.asr_language:
             data["language"] = settings.asr_language
-        headers = {"Authorization": f"Bearer {settings.asr_api_key}"}
+        headers = {}
+        if settings.asr_api_key:
+            headers["Authorization"] = f"Bearer {settings.asr_api_key}"
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, headers=headers, data=data, files=files)
@@ -159,6 +161,9 @@ def build_asr() -> ASR:
         return LocalWhisperASR()
     if provider == "openai" and settings.asr_api_key:
         log.info("ASR provider: openai-compatible (%s)", settings.asr_base_url)
+        return OpenAICompatASR()
+    if provider == "openai" and is_local_service_url(settings.asr_base_url):
+        log.info("ASR provider: openai-compatible 本地服务 (%s, 免 Key)", settings.asr_base_url)
         return OpenAICompatASR()
     if provider != "mock" and _local_available():
         log.warning("ASR provider %r 需要 Key，本次自动改用本地 faster-whisper", provider)
