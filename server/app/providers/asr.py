@@ -114,6 +114,8 @@ class LocalWhisperASR(ASR):
             beam_size=1,
             vad_filter=True,
             condition_on_previous_text=False,
+            # 引导 Whisper 输出简体中文（否则它经常转写为繁体）
+            initial_prompt="以下是普通话的句子，请使用简体中文转写。",
         )
         text = "".join(seg.text for seg in segments).strip()
         log.info("ASR(local/%s) -> %r", settings.asr_local_model, text[:80])
